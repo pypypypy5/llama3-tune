@@ -148,6 +148,7 @@ To help developers address these risks, we have created the [Responsible Use Gui
 This repo now includes a native LoRA SFT training path for Llama 3 checkpoints:
 - Training script: `scripts/train_lora_sft.py`
 - LoRA implementation: `llama/lora.py`
+- Training package: `llama/train/` (`config.py`, `data.py`, `distributed.py`, `trainer.py`)
 - Inference loading: `Llama.build(..., lora_adapter_path=...)`
 
 ### Data format
@@ -160,6 +161,62 @@ Use JSONL where each line has a `messages` list:
 ```
 
 Loss is computed only on `assistant` messages (SFT-style masking).
+
+### Topic Classification Workflow (AG News)
+
+This repo includes a ready task pipeline for topic classification:
+- Task module: `llama/tasks/topic_classification.py`
+- Data prep script: `scripts/data/prepare_topic_classification_data.py`
+- Training entrypoint: `scripts/train_topic_classification_lora.py`
+- Eval script: `scripts/eval_topic_classification.py`
+
+1) Prepare training/eval data (downloads AG News and builds train/val/test JSONL):
+
+```bash
+python3 scripts/data/prepare_topic_classification_data.py \
+  --download_raw \
+  --output_dir data/topic_classification/ag_news
+```
+
+Raw source: `https://raw.githubusercontent.com/mhjabreel/CharCnn_Keras/master/data/ag_news_csv/`
+
+If you already downloaded raw CSV files, use:
+
+```bash
+python3 scripts/data/prepare_topic_classification_data.py \
+  --train_csv data/topic_classification/ag_news/raw/train.csv \
+  --test_csv data/topic_classification/ag_news/raw/test.csv \
+  --output_dir data/topic_classification/ag_news
+```
+
+2) Train LoRA with prepared data:
+
+```bash
+torchrun --nproc_per_node 1 scripts/train_topic_classification_lora.py \
+  --ckpt_dir Meta-Llama-3-8B-Instruct \
+  --tokenizer_path Meta-Llama-3-8B-Instruct/tokenizer.model \
+  --data_dir data/topic_classification/ag_news \
+  --output_dir outputs/topic-cls-lora \
+  --max_seq_len 512 \
+  --batch_size 4 \
+  --gradient_accumulation_steps 8 \
+  --learning_rate 2e-4 \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --lora_targets wq,wk,wv,wo
+```
+
+3) Evaluate on test split:
+
+```bash
+torchrun --nproc_per_node 1 scripts/eval_topic_classification.py \
+  --ckpt_dir Meta-Llama-3-8B-Instruct \
+  --tokenizer_path Meta-Llama-3-8B-Instruct/tokenizer.model \
+  --lora_adapter_path outputs/topic-cls-lora/adapter_final.pt \
+  --eval_data data/topic_classification/ag_news/test.jsonl \
+  --output_path outputs/topic-cls-lora/eval_test.json
+```
 
 ### Train (single GPU, MP=1)
 
@@ -180,6 +237,37 @@ torchrun --nproc_per_node 1 scripts/train_lora_sft.py \
 ```
 
 The final adapter is saved at `outputs/lora-8b/adapter_final.pt`.
+
+### Reuse from Python
+
+```python
+import torch
+from llama.tokenizer import ChatFormat
+from llama.train import (
+    LoRATrainConfig,
+    build_sft_dataloader,
+    load_model_and_tokenizer,
+    run_lora_sft,
+)
+
+config = LoRATrainConfig(
+    ckpt_dir="Meta-Llama-3-8B-Instruct",
+    tokenizer_path="Meta-Llama-3-8B-Instruct/tokenizer.model",
+    train_data="data/train.jsonl",
+    output_dir="outputs/lora-8b",
+)
+run_lora_sft(config)
+
+# Or build pieces separately
+device = torch.device("cuda:0")
+model, tokenizer = load_model_and_tokenizer(config, device)
+dataloader = build_sft_dataloader(
+    data_path=config.train_data,
+    formatter=ChatFormat(tokenizer),
+    max_seq_len=config.max_seq_len,
+    batch_size=config.batch_size,
+)
+```
 
 ### Run inference with adapter
 
