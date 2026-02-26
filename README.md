@@ -143,6 +143,54 @@ torchrun --nproc_per_node 1 example_chat_completion.py \
 Llama 3 is a new technology that carries potential risks with use. Testing conducted to date has not — and could not — cover all scenarios.
 To help developers address these risks, we have created the [Responsible Use Guide](https://ai.meta.com/static-resource/responsible-use-guide/).
 
+## LoRA Fine-tuning (8B+)
+
+This repo now includes a native LoRA SFT training path for Llama 3 checkpoints:
+- Training script: `scripts/train_lora_sft.py`
+- LoRA implementation: `llama/lora.py`
+- Inference loading: `Llama.build(..., lora_adapter_path=...)`
+
+### Data format
+
+Use JSONL where each line has a `messages` list:
+
+```json
+{"messages":[{"role":"system","content":"You are a helpful assistant."},{"role":"user","content":"What is LoRA?"},{"role":"assistant","content":"LoRA is a parameter-efficient fine-tuning method."}]}
+{"messages":[{"role":"user","content":"Summarize transformers in one sentence."},{"role":"assistant","content":"Transformers are sequence models built on self-attention."}]}
+```
+
+Loss is computed only on `assistant` messages (SFT-style masking).
+
+### Train (single GPU, MP=1)
+
+```bash
+torchrun --nproc_per_node 1 scripts/train_lora_sft.py \
+  --ckpt_dir Meta-Llama-3-8B-Instruct \
+  --tokenizer_path Meta-Llama-3-8B-Instruct/tokenizer.model \
+  --train_data data/train.jsonl \
+  --output_dir outputs/lora-8b \
+  --max_seq_len 2048 \
+  --batch_size 1 \
+  --gradient_accumulation_steps 16 \
+  --learning_rate 2e-4 \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --lora_targets wq,wk,wv,wo
+```
+
+The final adapter is saved at `outputs/lora-8b/adapter_final.pt`.
+
+### Run inference with adapter
+
+```bash
+torchrun --nproc_per_node 1 example_chat_completion.py \
+  --ckpt_dir Meta-Llama-3-8B-Instruct \
+  --tokenizer_path Meta-Llama-3-8B-Instruct/tokenizer.model \
+  --lora_adapter_path outputs/lora-8b/adapter_final.pt \
+  --max_seq_len 512 --max_batch_size 6
+```
+
 ## Issues
 
 Please report any software “bug” or other problems with the models through one of the following means:

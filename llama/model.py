@@ -126,22 +126,29 @@ class Attention(nn.Module):
             init_method=lambda x: x,
         )
 
-        self.cache_k = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
+        self.max_batch_size = args.max_batch_size
+        self.max_seq_len = args.max_seq_len
+        self.register_buffer("cache_k", None, persistent=False)
+        self.register_buffer("cache_v", None, persistent=False)
+
+    def _allocate_kv_cache(self, x: torch.Tensor):
+        needs_new_cache = (
+            self.cache_k is None
+            or self.cache_v is None
+            or self.cache_k.size(0) < self.max_batch_size
+            or self.cache_k.size(1) < self.max_seq_len
+            or self.cache_k.device != x.device
+            or self.cache_k.dtype != x.dtype
+        )
+        if needs_new_cache:
+            cache_shape = (
+                self.max_batch_size,
+                self.max_seq_len,
                 self.n_local_kv_heads,
                 self.head_dim,
             )
-        ).cuda()
-        self.cache_v = torch.zeros(
-            (
-                args.max_batch_size,
-                args.max_seq_len,
-                self.n_local_kv_heads,
-                self.head_dim,
-            )
-        ).cuda()
+            self.cache_k = torch.zeros(cache_shape, device=x.device, dtype=x.dtype)
+            self.cache_v = torch.zeros(cache_shape, device=x.device, dtype=x.dtype)
 
     def forward(
         self,
@@ -149,6 +156,7 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        use_cache: bool = True,
     ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -159,14 +167,23 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        self.cache_k = self.cache_k.to(xq)
-        self.cache_v = self.cache_v.to(xq)
-
-        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
-        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
-
-        keys = self.cache_k[:bsz, : start_pos + seqlen]
-        values = self.cache_v[:bsz, : start_pos + seqlen]
+        if use_cache:
+            if bsz > self.max_batch_size:
+                raise ValueError(
+                    f"batch size {bsz} exceeds max_batch_size={self.max_batch_size}"
+                )
+            if start_pos + seqlen > self.max_seq_len:
+                raise ValueError(
+                    f"sequence end {start_pos + seqlen} exceeds max_seq_len={self.max_seq_len}"
+                )
+            self._allocate_kv_cache(xq)
+            self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
+            self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
+            keys = self.cache_k[:bsz, : start_pos + seqlen]
+            values = self.cache_v[:bsz, : start_pos + seqlen]
+        else:
+            keys = xk
+            values = xv
 
         # repeat k/v heads if n_kv_heads < n_heads
         keys = repeat_kv(
@@ -242,8 +259,15 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        use_cache: bool = True,
     ):
-        h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask)
+        h = x + self.attention(
+            self.attention_norm(x),
+            start_pos,
+            freqs_cis,
+            mask,
+            use_cache=use_cache,
+        )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
@@ -274,8 +298,9 @@ class Transformer(nn.Module):
             params.rope_theta,
         )
 
-    @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens: torch.Tensor, start_pos: int, use_cache: bool = True):
+        if not use_cache and start_pos != 0:
+            raise ValueError("start_pos must be 0 when use_cache=False")
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
@@ -284,19 +309,19 @@ class Transformer(nn.Module):
         mask = None
         if seqlen > 1:
             mask = torch.full((seqlen, seqlen), float("-inf"), device=tokens.device)
-
             mask = torch.triu(mask, diagonal=1)
-
-            # When performing key-value caching, we compute the attention scores
-            # only for the new sequence. Thus, the matrix of scores is of size
-            # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
-            # j > cache_len + i, since row i corresponds to token cache_len + i.
-            mask = torch.hstack(
-                [torch.zeros((seqlen, start_pos), device=tokens.device), mask]
-            ).type_as(h)
+            if use_cache and start_pos > 0:
+                # When performing key-value caching, we compute the attention scores
+                # only for the new sequence. Thus, the matrix of scores is of size
+                # (seqlen, cache_len + seqlen), and the only masked entries are (i, j) for
+                # j > cache_len + i, since row i corresponds to token cache_len + i.
+                mask = torch.hstack(
+                    [torch.zeros((seqlen, start_pos), device=tokens.device), mask]
+                )
+            mask = mask.type_as(h)
 
         for layer in self.layers:
-            h = layer(h, start_pos, freqs_cis, mask)
+            h = layer(h, start_pos, freqs_cis, mask, use_cache=use_cache)
         h = self.norm(h)
         output = self.output(h).float()
         return output

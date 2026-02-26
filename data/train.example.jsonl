@@ -1,0 +1,2 @@
+{"messages":[{"role":"system","content":"You are a concise assistant."},{"role":"user","content":"Explain LoRA in two lines."},{"role":"assistant","content":"LoRA fine-tunes large models by adding small low-rank adapter matrices.\nIt updates only adapters, so training is cheaper and uses less memory."}]}
+{"messages":[{"role":"user","content":"Write a one-line summary of transformers."},{"role":"assistant","content":"Transformers model sequences with self-attention to capture long-range dependencies efficiently."}]}

@@ -16,6 +16,7 @@ from fairscale.nn.model_parallel.initialize import (
     model_parallel_is_initialized,
 )
 
+from llama.lora import load_lora_adapter
 from llama.model import ModelArgs, Transformer
 from llama.tokenizer import ChatFormat, Dialog, Message, Tokenizer
 
@@ -40,6 +41,7 @@ class Llama:
         max_seq_len: int,
         max_batch_size: int,
         model_parallel_size: Optional[int] = None,
+        lora_adapter_path: Optional[str] = None,
         seed: int = 1,
     ) -> "Llama":
         """
@@ -52,6 +54,8 @@ class Llama:
             max_batch_size (int): Maximum batch size for inference.
             model_parallel_size (Optional[int], optional): Number of model parallel processes.
                 If not provided, it's determined from the environment. Defaults to None.
+            lora_adapter_path (Optional[str], optional): Path to a LoRA adapter checkpoint.
+                When provided, adapter weights are loaded on top of the base checkpoint.
 
         Returns:
             Llama: An instance of the Llama class with the loaded model and tokenizer.
@@ -108,6 +112,11 @@ class Llama:
             torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
         model.load_state_dict(checkpoint, strict=False)
+        if lora_adapter_path is not None:
+            assert os.path.isfile(
+                lora_adapter_path
+            ), f"LoRA adapter file '{lora_adapter_path}' does not exist."
+            load_lora_adapter(model, lora_adapter_path, device="cpu")
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
