@@ -151,6 +151,14 @@ This repo now includes a native LoRA SFT training path for Llama 3 checkpoints:
 - Source modules: `src/train/`, `src/data/`, `src/tasks/`, `src/eval/`
 - Inference loading: `Llama.build(..., lora_adapter_path=...)`
 
+Project layout:
+- `llama/`: foundation model/runtime core
+- `src/train/`: LoRA training orchestration
+- `src/data/`: dataset prep and SFT dataloader
+- `src/tasks/`: task definitions and labeling logic
+- `src/eval/`: offline evaluation metrics/pipeline
+- `scripts/`: thin CLI wrappers
+
 ### Data format
 
 Use JSONL where each line has a `messages` list:
@@ -270,6 +278,12 @@ dataloader = build_sft_dataloader(
 ```
 
 If you run this without `pip install -e .`, set `PYTHONPATH=src:.` first.
+
+Run smoke tests:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
 
 ### Run inference with adapter
 
