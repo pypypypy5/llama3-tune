@@ -81,6 +81,12 @@ def normalize_label(raw: str) -> Optional[str]:
     if match:
         return match.group(1)
 
+    # Also handle tokenization artifacts such as "label:_business".
+    relaxed = re.sub(r"[^a-z_]+", " ", value)
+    match = re.search(r"(world|sports|business|sci_tech)", relaxed)
+    if match:
+        return match.group(1)
+
     # Very short fallback for likely science/tech predictions.
     if "science" in value or "tech" in value or "technology" in value:
         return "sci_tech"
