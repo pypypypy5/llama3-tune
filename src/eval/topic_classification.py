@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Dict, List, Sequence
 
-from llama.tasks.topic_classification import ALLOWED_LABELS, normalize_label
+from tasks.topic_classification import ALLOWED_LABELS, normalize_label
 
 Dialog = List[Dict[str, str]]
 

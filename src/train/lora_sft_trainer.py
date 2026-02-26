@@ -23,8 +23,8 @@ from llama.model import ModelArgs, Transformer
 from llama.tokenizer import ChatFormat, Tokenizer
 
 from .config import LoRATrainConfig, validate_train_config
-from .data import IGNORE_INDEX, build_sft_dataloader
 from .distributed import cleanup_distributed, log, setup_distributed
+from data.sft_dataset import IGNORE_INDEX, build_sft_dataloader
 
 
 

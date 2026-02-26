@@ -148,7 +148,7 @@ To help developers address these risks, we have created the [Responsible Use Gui
 This repo now includes a native LoRA SFT training path for Llama 3 checkpoints:
 - Training script: `scripts/train_lora_sft.py`
 - LoRA implementation: `llama/lora.py`
-- Training package: `llama/train/` (`config.py`, `data.py`, `distributed.py`, `trainer.py`)
+- Source modules: `src/train/`, `src/data/`, `src/tasks/`, `src/eval/`
 - Inference loading: `Llama.build(..., lora_adapter_path=...)`
 
 ### Data format
@@ -165,7 +165,7 @@ Loss is computed only on `assistant` messages (SFT-style masking).
 ### Topic Classification Workflow (AG News)
 
 This repo includes a ready task pipeline for topic classification:
-- Task module: `llama/tasks/topic_classification.py`
+- Task module: `src/tasks/topic_classification.py`
 - Data prep script: `scripts/data/prepare_topic_classification_data.py`
 - Training entrypoint: `scripts/train_topic_classification_lora.py`
 - Eval script: `scripts/eval_topic_classification.py`
@@ -243,12 +243,12 @@ The final adapter is saved at `outputs/lora-8b/adapter_final.pt`.
 ```python
 import torch
 from llama.tokenizer import ChatFormat
-from llama.train import (
+from train import (
     LoRATrainConfig,
-    build_sft_dataloader,
     load_model_and_tokenizer,
     run_lora_sft,
 )
+from data.sft_dataset import build_sft_dataloader
 
 config = LoRATrainConfig(
     ckpt_dir="Meta-Llama-3-8B-Instruct",
@@ -268,6 +268,8 @@ dataloader = build_sft_dataloader(
     batch_size=config.batch_size,
 )
 ```
+
+If you run this without `pip install -e .`, set `PYTHONPATH=src:.` first.
 
 ### Run inference with adapter
 
